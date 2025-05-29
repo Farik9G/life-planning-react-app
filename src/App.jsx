@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import api from './api';
 import { ToastContainer, toast } from 'react-toastify';
 import LoginForm from './components/LoginForm';
@@ -19,7 +20,8 @@ function App() {
     const [isCodeSent, setIsCodeSent] = useState(false);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [username, setUsername] = useState('');
-    const [currentPage, setCurrentPage] = useState('events');
+    const navigate = useNavigate();
+    const location = useLocation();
 
     useEffect(() => {
         const fetchUsername = async () => {
@@ -30,12 +32,12 @@ function App() {
                     if (!token) {
                         throw new Error('No token found in localStorage');
                     }
-                    const response = await api.get('/api/user/', {
+                    const _RESPONSE = await api.get('/api/user/', {
                         headers: { Authorization: `Bearer ${token}` }
                     });
-                    console.log('Response from /api/user/:', response.data);
-                    if (response.data && response.data.username) {
-                        setUsername(response.data.username);
+                    console.log('Response from /api/user/:', _RESPONSE.data);
+                    if (_RESPONSE.data && _RESPONSE.data.username) {
+                        setUsername(_RESPONSE.data.username);
                     } else {
                         throw new Error('Username not found in response');
                     }
@@ -45,13 +47,20 @@ function App() {
                     if (error.response?.status === 401 || error.response?.status === 500) {
                         setIsAuthenticated(false);
                         localStorage.removeItem('token');
-                        setCurrentPage('events');
+                        navigate('/events');
                     }
                 }
             }
         };
-        fetchUsername();
-    }, [isAuthenticated]);
+        fetchUsername().catch((error) => {
+            console.error('Unhandled error in fetchUsername:', error);
+        });
+    }, [isAuthenticated, navigate]);
+
+    // Закрываем меню при изменении маршрута
+    useEffect(() => {
+        setIsMenuOpen(false);
+    }, [location.pathname]);
 
     const validateEmail = (email) => {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -75,11 +84,11 @@ function App() {
             const payload = { email: data.email || data.identifier };
             console.log('Sending request to', endpoint, 'with payload:', payload);
             console.log('Setting formData:', data);
-            const response = await api.post(endpoint, payload);
-            console.log('Response:', response.data);
+            const _RESPONSE = await api.post(endpoint, payload);
+            console.log('Response from', endpoint, ':', _RESPONSE.data);
 
-            if (response.data === 'OK' || response.data.success || response.data.status === 'success') {
-                toast.success(response.data.message || 'Код подтверждения отправлен');
+            if (_RESPONSE.data === 'OK' || _RESPONSE.data.success || _RESPONSE.data.status === 'success') {
+                toast.success(_RESPONSE.data.message || 'Код подтверждения отправлен');
                 setFormData(data);
                 setEmail(data.email || data.identifier);
                 setShowVerification(true);
@@ -92,9 +101,9 @@ function App() {
                     toast.error('Неверный email или пароль');
                     setFailedLoginAttempts((prev) => prev + 1);
                 } else if (mode === 'reset') {
-                    toast.error(response.data.error || 'Пользователь не найден');
+                    toast.error(_RESPONSE.data.error || 'Пользователь не найден');
                 } else {
-                    toast.error(response.data.error || 'Ошибка при отправке кода');
+                    toast.error(_RESPONSE.data.error || 'Ошибка при отправке кода');
                 }
             }
         } catch (error) {
@@ -144,21 +153,21 @@ function App() {
                     : { ...formData, code: parseInt(code) };
 
             console.log('Sending request to', endpoint, 'with payload:', payload);
-            const response = await api.post(endpoint, payload);
-            console.log('Response from', endpoint, ':', response.data, 'Type:', typeof response.data);
+            const _RESPONSE = await api.post(endpoint, payload);
+            console.log('Response from', endpoint, ':', _RESPONSE.data, 'Type:', typeof _RESPONSE.data);
 
-            if (response.data === 'OK' || response.data === 'CREATED' || response.data.success || response.data.status === 'success' || response.data.token) {
-                toast.success(response.data.message || mode === 'reset' ? 'Пароль успешно сброшен' : 'Успешно!');
+            if (_RESPONSE.data === 'OK' || _RESPONSE.data === 'CREATED' || _RESPONSE.data.success || _RESPONSE.data.status === 'success' || _RESPONSE.data.token) {
+                toast.success(_RESPONSE.data.message || mode === 'reset' ? 'Пароль успешно сброшен' : 'Успешно!');
                 setShowVerification(false);
                 setIsCodeSent(false);
-                if (response.data.token) {
-                    localStorage.setItem('token', response.data.token);
+                if (_RESPONSE.data.token) {
+                    localStorage.setItem('token', _RESPONSE.data.token);
                     setIsAuthenticated(true);
                 }
                 setMode('login');
             } else {
-                console.warn('Unexpected response from', endpoint, ':', response.data);
-                toast.error(response.data.error || mode === 'register' ? 'Ошибка регистрации: неверный код или данные' : 'Неверный код');
+                console.warn('Unexpected response from', endpoint, ':', _RESPONSE.data);
+                toast.error(_RESPONSE.data.error || mode === 'register' ? 'Ошибка регистрации: неверный код или данные' : 'Неверный код');
             }
         } catch (error) {
             console.error('Error in', endpoint || 'unknown endpoint', ':', error.message, error.response?.data, 'Status:', error.response?.status);
@@ -187,7 +196,7 @@ function App() {
         setIsCodeSent(false);
         setIsMenuOpen(false);
         setUsername('');
-        setCurrentPage('events');
+        navigate('/events');
     };
 
     const handleModalClose = () => {
@@ -199,54 +208,89 @@ function App() {
     };
 
     const navigateToProfile = () => {
-        setCurrentPage('profile');
-        toggleMenu();
+        navigate('/profile');
     };
 
-    const navigateToCreateEvent = () => {
-        setCurrentPage('create-event');
-        toggleMenu();
+    const navigateToCreateEvent = (eventData = null) => {
+        console.log('Navigating to create event with data:', eventData);
+        if (eventData && eventData.type && eventData.nativeEvent) {
+            console.warn('Received event object instead of eventData, using null instead');
+            eventData = null; // Преобразуем событие в null, если это объект события
+        }
+        navigate('/create-event', { state: { eventData } });
     };
 
     const navigateToEvents = () => {
-        setCurrentPage('events');
-        toggleMenu();
+        navigate('/events');
     };
 
     return (
-        <div className="h-screen w-screen flex items-center justify-center bg-gray-100 p-4">
+        <div className="h-screen w-screen flex items-center justify-center bg-gray-100 p-4 overflow-x-hidden">
             {isAuthenticated ? (
-                <div className="w-full h-full relative">
-                    {currentPage === 'events' && (
-                        <EventsPage
+                <div className="w-full h-full relative bg-gray-100">
+                    <Routes>
+                        <Route
+                            path="/events"
+                            element={
+                                <EventsPage
+                                    username={username}
+                                    toggleMenu={toggleMenu}
+                                    isMenuOpen={isMenuOpen}
+                                    onLogout={logout}
+                                    navigateToProfile={navigateToProfile}
+                                    navigateToCreateEvent={navigateToCreateEvent}
+                                />
+                            }
+                        />
+                        <Route
+                            path="/profile"
+                            element={
+                                <ProfilePage
+                                    username={username}
+                                    toggleMenu={toggleMenu}
+                                    isMenuOpen={isMenuOpen}
+                                    onLogout={logout}
+                                    navigateToEvents={navigateToEvents}
+                                    navigateToCreateEvent={navigateToCreateEvent}
+                                />
+                            }
+                        />
+                        <Route
+                            path="/create-event"
+                            element={
+                                <CreateEventPage
+                                    username={username}
+                                    toggleMenu={toggleMenu}
+                                    isMenuOpen={isMenuOpen}
+                                    onLogout={logout}
+                                    navigateToEvents={navigateToEvents}
+                                    navigateToProfile={navigateToProfile}
+                                    editingEvent={location.state?.eventData || null}
+                                    handleCreateEvent={async (eventData) => {
+                                        try {
+                                            const token = localStorage.getItem('token');
+                                            const _RESPONSE = await api.post('/api/event/', eventData, {
+                                                headers: { Authorization: `Bearer ${token}` }
+                                            });
+                                            toast.success('Событие успешно создано!');
+                                            navigate('/events');
+                                        } catch (error) {
+                                            console.error('Error creating event:', error);
+                                            toast.error('Ошибка при создании события');
+                                        }
+                                    }}
+                                />
+                            }
+                        />
+                        <Route path="*" element={<EventsPage
                             username={username}
                             toggleMenu={toggleMenu}
                             isMenuOpen={isMenuOpen}
                             onLogout={logout}
                             navigateToProfile={navigateToProfile}
                             navigateToCreateEvent={navigateToCreateEvent}
-                        />
-                    )}
-                    {currentPage === 'profile' && (
-                        <ProfilePage
-                            username={username}
-                            toggleMenu={toggleMenu}
-                            isMenuOpen={isMenuOpen}
-                            onLogout={logout}
-                            navigateToEvents={navigateToEvents}
-                            navigateToCreateEvent={navigateToCreateEvent}
-                        />
-                    )}
-                    {currentPage === 'create-event' && (
-                        <CreateEventPage
-                            username={username}
-                            toggleMenu={toggleMenu}
-                            isMenuOpen={isMenuOpen}
-                            onLogout={logout}
-                            navigateToEvents={navigateToEvents}
-                            navigateToProfile={navigateToProfile}
-                        />
-                    )}
+                        />} />
+                    </Routes>
                 </div>
             ) : (
                 <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-lg relative">

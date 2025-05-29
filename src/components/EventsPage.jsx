@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import api from '../api';
+import { toast } from 'react-toastify';
 
 const EventsPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateToProfile, navigateToCreateEvent }) => {
     const [events, setEvents] = useState([]);
@@ -9,7 +10,7 @@ const EventsPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateToProf
     const [error, setError] = useState(null);
     const token = localStorage.getItem('token');
 
-    const fetchEvents = async () => {
+    const fetchEvents = useCallback(async () => {
         if (!token) {
             console.warn('No token found, skipping fetch');
             setError('Не авторизован. Пожалуйста, войдите.');
@@ -33,9 +34,10 @@ const EventsPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateToProf
         } finally {
             setLoading(false);
         }
-    };
+    }, [token, sortBy, sortOrder]);
 
     const sortEvents = (eventsToSort, sortBy, sortOrder) => {
+        const priorityOrder = { LOW: 0, MEDIUM: 1, HIGH: 2 };
         return [...eventsToSort].sort((a, b) => {
             let valueA, valueB;
             switch (sortBy) {
@@ -48,7 +50,6 @@ const EventsPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateToProf
                     valueB = b.title.toLowerCase();
                     break;
                 case 'priority':
-                    const priorityOrder = { LOW: 0, MEDIUM: 1, HIGH: 2 };
                     valueA = priorityOrder[a.priority] || 0;
                     valueB = priorityOrder[b.priority] || 0;
                     break;
@@ -59,14 +60,43 @@ const EventsPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateToProf
                 default:
                     valueA = new Date(a.date).getTime();
                     valueB = new Date(b.date).getTime();
+                    break;
             }
-            return sortOrder === 'ASC' ? valueA - valueB : valueB - valueA;
+            if (sortBy === 'date' || sortBy === 'priority' || sortBy === 'hasPassed') {
+                return sortOrder === 'ASC' ? valueA - valueB : valueB - valueA;
+            }
+            return sortOrder === 'ASC' ? valueA.localeCompare(valueB) : valueB.localeCompare(valueA);
         });
     };
 
     useEffect(() => {
         fetchEvents();
-    }, [token, sortOrder, sortBy]);
+    }, [fetchEvents]);
+
+    // Принудительная перезагрузка данных при возврате назад
+    useEffect(() => {
+        const handlePopState = () => {
+            console.log('Popstate event detected, forcing re-render and refetching events');
+            setEvents([]); // Сбрасываем состояние для принудительного перерендера
+            fetchEvents();
+        };
+
+        window.addEventListener('popstate', handlePopState);
+
+        return () => {
+            window.removeEventListener('popstate', handlePopState);
+        };
+    }, [fetchEvents]);
+
+    // Проверка пропсов
+    useEffect(() => {
+        if (!navigateToCreateEvent) {
+            console.error('navigateToCreateEvent is not defined in EventsPage props');
+        }
+        if (!toggleMenu) {
+            console.error('toggleMenu is not defined in EventsPage props');
+        }
+    }, [navigateToCreateEvent, toggleMenu]);
 
     const handleSortChange = (newSortBy) => {
         console.log('Sort by changed to:', newSortBy);
@@ -78,25 +108,27 @@ const EventsPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateToProf
         setSortOrder(newSortOrder);
     };
 
-    const priorityLabels = {
-        LOW: 'Низкий',
-        MEDIUM: 'Средний',
-        HIGH: 'Высокий'
+    const handleEditEvent = (eventData) => {
+        if (!eventData.id) {
+            toast.error('Не удалось открыть событие для редактирования: отсутствует ID события');
+            return;
+        }
+        if (typeof navigateToCreateEvent !== 'function') {
+            console.error('navigateToCreateEvent is not a function:', navigateToCreateEvent);
+            toast.error('Ошибка: навигация для редактирования недоступна');
+            return;
+        }
+        navigateToCreateEvent(eventData);
     };
 
-    const priorityColors = {
-        LOW: '#3B82F6',
-        MEDIUM: '#F59E0B',
-        HIGH: '#EF4444'
+    const handleToggleMenu = () => {
+        if (typeof toggleMenu !== 'function') {
+            console.error('toggleMenu is not a function:', toggleMenu);
+            toast.error('Ошибка: меню недоступно');
+            return;
+        }
+        toggleMenu();
     };
-
-    const normalizePriority = (priority) => {
-        const normalized = priority?.toUpperCase() || 'MEDIUM';
-        return priorityLabels[normalized] || 'Средний';
-    };
-
-    const eventStatus = (hasPassed) => (hasPassed ? 'Прошедшее' : 'Активное');
-    const statusColor = (hasPassed) => (hasPassed ? '#EF4444' : '#10B981');
 
     return (
         <>
@@ -122,13 +154,148 @@ const EventsPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateToProf
                         outline: none;
                         box-shadow: none;
                     }
+                    html, body {
+                        height: 100%;
+                        margin: 0;
+                        padding: 0;
+                        overflow: hidden;
+                    }
+                    .event-grid {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                        gap: 1rem;
+                        overflow-y: auto;
+                        overflow-x: hidden;
+                        scrollbar-width: thin;
+                        scrollbar-color: #9ca3af #f3f4f6;
+                        height: calc(100vh - 200px);
+                        padding-top: 10px;
+                    }
+                    .event-grid::-webkit-scrollbar {
+                        width: 8px;
+                    }
+                    .event-grid::-webkit-scrollbar-track {
+                        background: #f3f4f6;
+                    }
+                    .event-grid::-webkit-scrollbar-thumb {
+                        background-color: #9ca3af;
+                        border-radius: 4px;
+                    }
+                    .event-card {
+                        background-color: #f9fafb;
+                        border-radius: 12px;
+                        padding: 1rem;
+                        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                        transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+                        max-height: 350px;
+                        display: flex;
+                        flex-direction: column;
+                    }
+                    .event-card:hover {
+                        transform: translateY(-5px);
+                        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+                    }
+                    .event-card h3 {
+                        font-size: 1.125rem;
+                        font-weight: 500;
+                        color: #1f2937;
+                        margin-bottom: 0.5rem;
+                        overflow-y: auto;
+                        max-height: 60px;
+                        padding-bottom: 0.25rem;
+                        scrollbar-width: none;
+                    }
+                    .event-card h3::-webkit-scrollbar {
+                        width: 0;
+                        transition: width 0.3s ease;
+                    }
+                    .event-card h3:hover {
+                        scrollbar-width: thin;
+                    }
+                    .event-card h3:hover::-webkit-scrollbar {
+                        width: 8px;
+                        transition: width 0.3s ease;
+                    }
+                    .event-card h3:hover::-webkit-scrollbar-track {
+                        background: #f3f4f6;
+                    }
+                    .event-card h3:hover::-webkit-scrollbar-thumb {
+                        background-color: #9ca3af;
+                        border-radius: 3px;
+                    }
+                    .event-description {
+                        flex-grow: 1;
+                        max-height: 100px;
+                        overflow-y: auto;
+                        overflow-wrap: break-word;
+                        word-break: break-word;
+                        white-space: normal;
+                        min-height: 40px;
+                        margin-bottom: 0.5rem;
+                        scrollbar-width: none;
+                    }
+                    .event-description::-webkit-scrollbar {
+                        width: 0;
+                        transition: width 0.3s ease;
+                    }
+                    .event-description:hover {
+                        scrollbar-width: thin;
+                    }
+                    .event-description:hover::-webkit-scrollbar {
+                        width: 8px;
+                        transition: width 0.3s ease;
+                    }
+                    .event-description:hover::-webkit-scrollbar-track {
+                        background: #f3f4f6;
+                    }
+                    .event-description:hover::-webkit-scrollbar-thumb {
+                        background-color: #9ca3af;
+                        border-radius: 3px;
+                    }
+                    .priority-low {
+                        color: #10b981;
+                        font-weight: 500;
+                    }
+                    .priority-medium {
+                        color: #f59e0b;
+                        font-weight: 500;
+                    }
+                    .priority-high {
+                        color: #ef4444;
+                        font-weight: 500;
+                    }
+                    .status-passed {
+                        color: #6b7280;
+                        font-style: italic;
+                    }
+                    .status-upcoming {
+                        color: #3b82f6;
+                        font-weight: 500;
+                    }
+                    .custom-select {
+                        appearance: none;
+                        background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%234b5563'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7' /%3E%3C/svg%3E") no-repeat right 0.75rem center/16px 16px;
+                        border: 2px solid #4b5563;
+                        border-radius: 8px;
+                        padding: 0.5rem 2.5rem 0.5rem 1rem;
+                        transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+                    }
+                    .custom-select:hover {
+                        border-color: #3b82f6;
+                        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+                    }
+                    .custom-select:focus {
+                        outline: none;
+                        border-color: #3b82f6;
+                        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+                    }
                 `}
             </style>
-            <div className="w-full h-full p-6 bg-gray-50 relative">
+            <div className="w-full h-full bg-gray-100 relative">
                 <div className="absolute top-4 right-4">
                     <button
                         className="p-2 z-30 rounded-full bg-gradient-to-r from-gray-200 to-gray-300 hover:from-gray-300 hover:to-gray-400 transition-all duration-300 shadow-lg glow relative"
-                        onClick={toggleMenu}
+                        onClick={handleToggleMenu}
                     >
                         <svg
                             className="w-6 h-6 text-gray-900"
@@ -147,7 +314,7 @@ const EventsPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateToProf
                         {isMenuOpen && (
                             <div className="absolute top-[calc(100%+0.5rem)] right-0 w-56 bg-gray-600 bg-opacity-90 rounded-xl shadow-lg animate-fadeIn z-30">
                                 <div className="p-5">
-                                    <p className="text-gray-100 font-bold mb-3 border-b border-gray-500 pb-2">{username}</p>
+                                    <p className="text-gray-100 font-bold mb-3 border-b border-gray-500 pb-2">{username || 'Гость'}</p>
                                     <div
                                         className="w-full text-left px-3 py-2 text-gray-100 hover:bg-gray-500 rounded-lg transition duration-200 cursor-pointer"
                                         onClick={navigateToProfile}
@@ -156,7 +323,7 @@ const EventsPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateToProf
                                     </div>
                                     <div
                                         className="w-full text-left px-3 py-2 text-gray-100 hover:bg-gray-500 rounded-lg transition duration-200 cursor-pointer"
-                                        onClick={navigateToCreateEvent}
+                                        onClick={() => navigateToCreateEvent && navigateToCreateEvent()}
                                     >
                                         Создать событие
                                     </div>
@@ -172,15 +339,15 @@ const EventsPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateToProf
                     </button>
                 </div>
 
-                <div className="max-w-2xl mx-auto mt-8">
-                    <h2 className="text-2xl font-semibold text-gray-800 mb-6">Мои события</h2>
-                    <div className="flex space-x-4 mb-6">
+                <div className="max-w-5xl mx-auto w-full h-full flex flex-col justify-start p-2">
+                    <h2 className="text-2xl font-semibold text-gray-800 mb-4">Мои события</h2>
+                    <div className="flex flex-wrap gap-4 mb-4">
                         <div>
                             <label className="block text-gray-600 text-sm font-medium mb-1">Сортировать по</label>
                             <select
                                 value={sortBy}
                                 onChange={(e) => handleSortChange(e.target.value)}
-                                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 transition text-gray-900"
+                                className="custom-select text-gray-900"
                             >
                                 <option value="title">Названию</option>
                                 <option value="date">Дате</option>
@@ -193,7 +360,7 @@ const EventsPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateToProf
                             <select
                                 value={sortOrder}
                                 onChange={(e) => handleOrderChange(e.target.value)}
-                                className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 transition text-gray-900"
+                                className="custom-select text-gray-900"
                             >
                                 <option value="ASC">По возрастанию</option>
                                 <option value="DESC">По убыванию</option>
@@ -209,26 +376,34 @@ const EventsPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateToProf
                     ) : events.length === 0 ? (
                         <p className="text-gray-600">У вас пока нет событий.</p>
                     ) : (
-                        <div className="space-y-4">
-                            {events.map(event => (
-                                <div
-                                    key={event.id}
-                                    className={`p-4 rounded-lg shadow-md ${event.hasPassed ? 'bg-gray-100' : 'bg-white'}`}
-                                    style={{ cursor: 'pointer' }}
-                                >
-                                    <h3 className="text-lg font-medium text-gray-800">{event.title || 'Без названия'}</h3>
-                                    <p className="text-gray-600">{event.description || 'Без описания'}</p>
-                                    <p className="text-sm text-gray-500 mt-1">
-                                        Дата: {event.date ? new Date(event.date.split('.')[0]).toLocaleString() : 'Не указана'}
+                        <div className="event-grid flex-grow">
+                            {events.map((event) => (
+                                <div key={event.id} className="event-card">
+                                    <h3 className="text-lg font-medium text-gray-800 mb-2">{event.title || 'Без названия'}</h3>
+                                    {event.description && (
+                                        <p className="text-gray-600 event-description">{event.description}</p>
+                                    )}
+                                    <p className="text-gray-600 mb-1">
+                                        {event.date ? new Date(event.date.split('.')[0]).toLocaleString('ru-RU', {
+                                            day: '2-digit',
+                                            month: '2-digit',
+                                            year: 'numeric',
+                                            hour: '2-digit',
+                                            minute: '2-digit'
+                                        }) : 'Не указана'}
                                     </p>
-                                    <p className="text-sm mt-1">
-                                        <span className="text-gray-500">Приоритет: </span>
-                                        <span style={{ color: priorityColors[event.priority] }}>{normalizePriority(event.priority)}</span>
+                                    <p className={`mb-1 priority-${event.priority.toLowerCase()}`}>
+                                        Приоритет: {event.priority === 'LOW' ? 'Низкий' : event.priority === 'MEDIUM' ? 'Средний' : 'Высокий'}
                                     </p>
-                                    <p className="text-sm mt-1">
-                                        <span className="text-gray-500">Статус: </span>
-                                        <span style={{ color: statusColor(event.hasPassed) }}>{eventStatus(event.hasPassed)}</span>
+                                    <p className={`mb-3 status-${event.hasPassed ? 'passed' : 'upcoming'}`}>
+                                        {event.hasPassed ? 'Прошедшее' : 'Предстоящее'}
                                     </p>
+                                    <button
+                                        className="w-full bg-blue-500 text-white py-1.5 px-3 rounded-lg hover:bg-blue-600 transition duration-200"
+                                        onClick={() => handleEditEvent(event)}
+                                    >
+                                        Редактировать
+                                    </button>
                                 </div>
                             ))}
                         </div>

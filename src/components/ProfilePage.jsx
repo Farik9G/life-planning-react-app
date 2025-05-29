@@ -50,7 +50,7 @@ const ProfilePage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateToEve
                     }
                 `}
             </style>
-            <div className="w-full h-screen p-6 bg-gray-50 relative">
+            <div className="w-full h-full bg-gray-100 relative">
                 <div className="absolute top-4 right-4">
                     <button
                         className="p-2 z-50 rounded-full bg-gradient-to-r from-gray-200 to-gray-300 hover:from-gray-300 hover:to-gray-400 transition-all duration-300 shadow-lg glow relative"
@@ -98,7 +98,7 @@ const ProfilePage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateToEve
                     </button>
                 </div>
 
-                <div className="w-full max-w-2xl mx-auto mt-8">
+                <div className="max-w-2xl mx-auto w-full h-full flex flex-col justify-start p-6">
                     <h2 className="text-2xl font-semibold text-gray-800 mb-6">Профиль</h2>
                     <div className="bg-white p-6 rounded-lg shadow-md">
                         <p className="text-gray-600 mb-2"><strong>Имя пользователя:</strong> {user?.username || 'Не указано'}</p>

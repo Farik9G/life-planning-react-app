@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { toast } from 'react-toastify';
 import api from '../api';
 
-const CreateEventPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateToEvents, navigateToProfile }) => {
+const CreateEventPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateToEvents, navigateToProfile, editingEvent }) => {
     const [eventTitle, setEventTitle] = useState('');
     const [eventDescription, setEventDescription] = useState('');
     const [eventDate, setEventDate] = useState('');
@@ -9,33 +10,77 @@ const CreateEventPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateT
     const [eventPriority, setEventPriority] = useState('MEDIUM');
     const [hasPassed, setHasPassed] = useState(false);
     const token = localStorage.getItem('token');
+    const MAX_LENGTH = 255;
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        const formattedDate = eventDate && eventTime ? `${eventDate} ${eventTime}:00.000` : null;
-        const payload = {
-            title: eventTitle,
-            description: eventDescription,
-            date: formattedDate,
-            priority: eventPriority,
-            hasPassed: hasPassed
-        };
-        try {
-            console.log('Creating event with payload:', payload, 'Authorization:', `Bearer ${token}`);
-            const response = await api.post('/api/event/', payload, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            console.log('Response data:', response.data);
-            navigateToEvents();
+    useEffect(() => {
+        if (editingEvent) {
+            setEventTitle(editingEvent.title || '');
+            setEventDescription(editingEvent.description || '');
+            setEventDate(editingEvent.date ? new Date(editingEvent.date).toISOString().split('T')[0] : '');
+            setEventTime(editingEvent.date ? new Date(editingEvent.date).toTimeString().slice(0, 5) : '00:00');
+            setEventPriority(editingEvent.priority || 'MEDIUM');
+            setHasPassed(editingEvent.hasPassed || false);
+        } else {
             setEventTitle('');
             setEventDescription('');
             setEventDate('');
             setEventTime('00:00');
             setEventPriority('MEDIUM');
             setHasPassed(false);
-            console.log('Event created:', response.data);
+        }
+    }, [editingEvent]);
+
+    // Проверка, является ли дата будущей
+    const isFutureDate = (dateStr, timeStr) => {
+        if (!dateStr || !timeStr) return false;
+        const eventDateTime = new Date(`${dateStr}T${timeStr}:00`);
+        const now = new Date();
+        return eventDateTime > now;
+    };
+
+    // Сбрасываем hasPassed, если дата становится будущей
+    useEffect(() => {
+        if (isFutureDate(eventDate, eventTime)) {
+            setHasPassed(false);
+        }
+    }, [eventDate, eventTime]);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        const formattedDate = eventDate && eventTime ? `${eventDate} ${eventTime}:00.000` : null;
+        // Проверяем, что hasPassed соответствует дате перед отправкой
+        const finalHasPassed = isFutureDate(eventDate, eventTime) ? false : hasPassed;
+        const payload = {
+            id: editingEvent && editingEvent.id ? editingEvent.id : 0,
+            title: eventTitle,
+            description: eventDescription,
+            date: formattedDate,
+            priority: eventPriority,
+            hasPassed: finalHasPassed
+        };
+        try {
+            console.log('Submitting event with payload:', payload, 'Authorization:', `Bearer ${token}`);
+            let response;
+            if (editingEvent && editingEvent.id) {
+                response = await api.put('/api/event/', payload, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                toast.success('Событие успешно обновлено!');
+            } else {
+                response = await api.post('/api/event/', payload, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                toast.success('Событие успешно создано!');
+            }
+            console.log('Response data:', response.data);
+            // Закрываем меню перед навигацией
+            if (isMenuOpen) {
+                toggleMenu();
+            }
+            navigateToEvents();
         } catch (error) {
-            console.error('Error creating event:', error.response?.data || error.message);
+            console.error('Error submitting event:', error.response?.data || error.message);
+            toast.error(`Ошибка: ${error.response?.data?.error || error.message}`);
         }
     };
 
@@ -65,6 +110,54 @@ const CreateEventPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateT
                     }
                     input[type="date"], input[type="time"] {
                         color: #1f2937;
+                        background-color: #f3f4f6;
+                        border: 2px solid #4b5563;
+                        border-radius: 8px;
+                        padding: 0.5rem 1rem 0.5rem 2.5rem;
+                        transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+                        width: 100%;
+                        box-sizing: border-box;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        font-size: 1rem;
+                    }
+                    input[type="date"]:hover, input[type="time"]:hover {
+                        border-color: #3b82f6;
+                        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+                    }
+                    input[type="date"]:focus, input[type="time"]:focus {
+                        outline: none;
+                        border-color: #3b82f6;
+                        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+                    }
+                    /* Скрываем стрелочки (спиннеры) */
+                    input[type="time"]::-webkit-inner-spin-button,
+                    input[type="time"]::-webkit-outer-spin-button {
+                        -webkit-appearance: none;
+                        margin: 0;
+                    }
+                    input[type="time"] {
+                        -moz-appearance: textfield; /* Для Firefox */
+                    }
+                    input[type="date"]::-webkit-calendar-picker-indicator,
+                    input[type="time"]::-webkit-calendar-picker-indicator {
+                        filter: invert(20%) sepia(10%) saturate(1352%) hue-rotate(180deg) brightness(95%) contrast(85%);
+                        margin-right: 0.5rem;
+                        position: relative;
+                    }
+                    .input-icon-wrapper {
+                        position: relative;
+                        display: block;
+                    }
+                    .input-icon {
+                        position: absolute;
+                        left: 10px;
+                        top: 50%;
+                        transform: translateY(-50%);
+                        width: 20px;
+                        height: 20px;
+                        color: #4b5563;
+                        pointer-events: none;
+                        z-index: 1;
                     }
                     .custom-checkbox {
                         appearance: none;
@@ -108,20 +201,28 @@ const CreateEventPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateT
                         border-color: #3b82f6;
                         box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
                     }
-                    .input-icon-wrapper {
-                        position: relative;
+                    .char-counter {
+                        font-size: 0.75rem;
+                        color: #6b7280;
+                        margin-top: 0.25rem;
                     }
-                    .input-icon {
-                        position: absolute;
-                        left: 10px;
-                        top: 50%;
-                        transform: translateY(-50%);
-                        width: 20px;
-                        height: 20px;
-                        color: #4b5563;
+                    .char-counter.warning {
+                        color: #ef4444;
                     }
-                    .input-with-icon {
-                        padding-left: 40px;
+                    input[type="text"], textarea {
+                        width: 100%;
+                        padding: 0.5rem;
+                        border: 2px solid #4b5563;
+                        border-radius: 8px;
+                        transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+                    }
+                    input[type="text"]:focus, textarea:focus {
+                        outline: none;
+                        border-color: #3b82f6;
+                        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+                    }
+                    textarea {
+                        resize: none; /* Убираем возможность растягивания */
                     }
                 `}
             </style>
@@ -174,26 +275,36 @@ const CreateEventPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateT
                 </div>
 
                 <div className="max-w-md mx-auto bg-gray-100 p-8 rounded-xl shadow-md mt-8">
-                    <h2 className="text-2xl font-semibold text-gray-800 mb-6">Создать событие</h2>
+                    <h2 className="text-2xl font-semibold text-gray-800 mb-6">{editingEvent ? 'Редактировать событие' : 'Создать событие'}</h2>
                     <form onSubmit={handleSubmit} className="space-y-5">
                         <div>
                             <label className="block text-gray-600 text-sm font-medium mb-1">Название события</label>
                             <input
                                 type="text"
                                 value={eventTitle}
-                                onChange={(e) => setEventTitle(e.target.value)}
+                                onChange={(e) => setEventTitle(e.target.value.slice(0, MAX_LENGTH))}
                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 transition text-gray-900"
                                 required
+                                maxLength={MAX_LENGTH}
                             />
+                            <div className={`char-counter ${eventTitle.length > MAX_LENGTH - 50 ? 'warning' : ''}`}>
+                                Осталось символов: {MAX_LENGTH - eventTitle.length}
+                            </div>
+                            <p className="text-sm text-gray-600 mt-1">Максимум 255 символов.</p>
                         </div>
                         <div>
                             <label className="block text-gray-600 text-sm font-medium mb-1">Описание</label>
                             <textarea
                                 value={eventDescription}
-                                onChange={(e) => setEventDescription(e.target.value)}
+                                onChange={(e) => setEventDescription(e.target.value.slice(0, MAX_LENGTH))}
                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 transition text-gray-900"
-                                rows="4"
+                                rows="8"
+                                maxLength={MAX_LENGTH}
                             />
+                            <div className={`char-counter ${eventDescription.length > MAX_LENGTH - 50 ? 'warning' : ''}`}>
+                                Осталось символов: {MAX_LENGTH - eventDescription.length}
+                            </div>
+                            <p className="text-sm text-gray-600 mt-1">Максимум 255 символов.</p>
                         </div>
                         <div>
                             <label className="block text-gray-600 text-sm font-medium mb-1">Дата</label>
@@ -216,7 +327,7 @@ const CreateEventPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateT
                                     type="date"
                                     value={eventDate}
                                     onChange={(e) => setEventDate(e.target.value)}
-                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 transition text-gray-900 input-with-icon"
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 transition text-gray-900"
                                     required
                                 />
                             </div>
@@ -242,7 +353,7 @@ const CreateEventPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateT
                                     type="time"
                                     value={eventTime}
                                     onChange={(e) => setEventTime(e.target.value)}
-                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 transition text-gray-900 input-with-icon"
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 transition text-gray-900"
                                     required
                                 />
                             </div>
@@ -265,6 +376,8 @@ const CreateEventPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateT
                                 checked={hasPassed}
                                 onChange={(e) => setHasPassed(e.target.checked)}
                                 className="custom-checkbox"
+                                disabled={isFutureDate(eventDate, eventTime)}
+                                title={isFutureDate(eventDate, eventTime) ? 'Нельзя отметить как прошедшее для будущей даты' : ''}
                             />
                             <label className="ml-2 text-gray-600 text-sm font-medium">Отметить как прошедшее</label>
                         </div>
@@ -272,7 +385,7 @@ const CreateEventPage = ({ username, toggleMenu, isMenuOpen, onLogout, navigateT
                             type="submit"
                             className="w-full bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition duration-200 font-medium"
                         >
-                            Создать
+                            {editingEvent ? 'Сохранить' : 'Создать'}
                         </button>
                     </form>
                 </div>

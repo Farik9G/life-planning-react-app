@@ -1,0 +1,39 @@
+server {
+    listen 80;
+    server_name localhost;
+
+    root /usr/share/nginx/html;
+    index index.html index.htm;
+
+    # Перенаправляем все запросы на index.html для поддержки React Router
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Настройка для API-запросов
+    location /api/ {
+        proxy_pass $VITE_API_URL;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Логирование для отладки
+    error_log /var/log/nginx/error.log debug;
+    access_log /var/log/nginx/access.log;
+
+    # Настройка кэширования статических файлов
+    location ~* \.(?:jpg|jpeg|gif|png|ico|cur|gz|svg|svgz|mp4|ogg|ogv|webm|htc|css|js|woff|woff2|ttf|eot|otf)$ {
+        expires 1y;
+        access_log off;
+        add_header Cache-Control "public";
+    }
+
+    # Отключаем логирование для favicon и robots.txt
+    location = /favicon.ico { access_log off; log_not_found off; }
+    location = /robots.txt  { access_log off; log_not_found off; }
+
+    # Обработка ошибок
+    error_page 404 /index.html;
+}
